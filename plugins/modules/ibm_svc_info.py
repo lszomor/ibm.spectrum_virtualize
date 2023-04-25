@@ -18,7 +18,7 @@ description:
   entities. These include the list of nodes, pools, volumes, hosts,
   host clusters, FC ports, iSCSI ports, target port FC, FC consistgrp,
   vdiskcopy, I/O groups, FC map, FC connectivity, NVMe fabric,
-  array, and system.
+  array, system, volumegroups and volumegroup snapshots.
 author:
 - Peng Wang (@wangpww)
 options:
@@ -93,9 +93,11 @@ options:
     - vdiskcopy - lists information for volume copy.
     - array - lists information for array MDisks.
     - system - displays the storage system information.
+    - volumegroup - lists information for volumegroups. Supported in SV build 8.5.2.0 or later.
+    - snapshot - lists information for volumegroup snapshots. Supported in SV build 8.5.2.0 or later.
     choices: [vol, pool, node, iog, host, hostvdiskmap, vdiskhostmap, hc, fcport
               , iscsiport, fc, fcmap, fcconsistgrp, rcrelationship, rcconsistgrp
-              , vdiskcopy, targetportfc, array, system, all]
+              , vdiskcopy, targetportfc, array, system, volumegroup, snapshot, all]
     default: "all"
 notes:
     - This module supports C(check_mode).
@@ -131,6 +133,8 @@ EXAMPLES = '''
 
 RETURN = '''#'''
 
+import re
+
 from traceback import format_exc
 from ansible.module_utils.basic import AnsibleModule
 from ansible_collections.ibm.spectrum_virtualize.plugins.module_utils.ibm_svc_utils import IBMSVCRestApi, svc_argument_spec, get_logger
@@ -165,6 +169,8 @@ class IBMSVCGatherInfo(object):
                                             'vdiskcopy',
                                             'array',
                                             'system',
+                                            'volumegroup',
+                                            'snapshot',
                                             'all'
                                             ]),
             )
@@ -466,11 +472,77 @@ class IBMSVCGatherInfo(object):
             self.log.error(msg)
             self.module.fail_json(msg=msg)
 
+    def get_volumegroup_list(self):
+        try:
+            cmdargs = [self.objectname] if self.objectname else None
+            vols = self.restapi.svc_obj_info(cmd='lsvolumegroup', cmdopts=None,
+                                             cmdargs=cmdargs)
+            self.log.info("Successfully listed %d volumegroups from array %s",
+                          len(vols), self.module.params['clustername'])
+            return vols
+        except Exception as e:
+            msg = ('Get VolumeGroups from array %s failed with error %s ',
+                   self.module.params['clustername'], str(e))
+            self.log.error(msg)
+            self.module.fail_json(msg=msg)
+
+    def get_snapshot_list(self):
+        try:
+            cmdargs = [self.objectname] if self.objectname else None
+            vols = self.restapi.svc_obj_info(cmd='lsvolumegroupsnapshot', cmdopts=None,
+                                             cmdargs=cmdargs)
+            self.log.info("Successfully listed %d snapshots from array %s",
+                          len(vols), self.module.params['clustername'])
+            return vols
+        except Exception as e:
+            msg = ('Get Snapshots from array %s failed with error %s ',
+                   self.module.params['clustername'], str(e))
+            self.log.error(msg)
+            self.module.fail_json(msg=msg)
+
+    def is_code_level_supported(self, system, minimum_code_level):
+        """
+        Returns wheter or not the system code level is greater than the minimum code level
+        """
+
+        result = False
+
+        if not system:
+            system_info = self.get_system_list()
+        else:
+            system_info = system
+
+        if isinstance(system_info, list):
+            system_info = system_info[0]
+
+        system_version = re.match(r'([\d]+)\.([\d]+)\.([\d]+)\.([\d]+) .*',
+                                  system_info["code_level"])
+
+        if not system_version:
+            msg = ('System version parse failed from array %s with code level %s ',
+                   self.module.params['clustername'], system_info["code_level"])
+            self.log.error(msg)
+            self.module.fail_json(msg=msg)
+
+        if minimum_code_level[0] < int(system_version.group(1)):
+            result = True
+        elif minimum_code_level[0] == int(system_version.group(1)):
+            if minimum_code_level[1] < int(system_version.group(2)):
+                result = True
+            elif minimum_code_level[1] == int(system_version.group(2)):
+                if minimum_code_level[2] < int(system_version.group(3)):
+                    result = True
+                elif minimum_code_level[2] == int(system_version.group(3)):
+                    if minimum_code_level[3] <= int(system_version.group(4)):
+                        result = True
+
+        return result
+
     def apply(self):
         all = ['vol', 'pool', 'node', 'iog', 'host', 'hc', 'fc',
                'fcport', 'iscsiport', 'fcmap', 'rcrelationship',
                'fcconsistgrp', 'rcconsistgrp', 'vdiskcopy',
-               'targetportfc', 'array', 'system']
+               'targetportfc', 'array', 'system', 'volumegroup', 'snapshot']
 
         # host/vdiskmap not added to all as they require an objectname
         # in order to run, so only use these as gather_subset
@@ -503,6 +575,8 @@ class IBMSVCGatherInfo(object):
         vdiskcopy = []
         array = []
         system = []
+        volumegroup = []
+        snapshot = []
 
         if 'vol' in subset:
             vol = self.get_volumes_list()
@@ -543,6 +617,12 @@ class IBMSVCGatherInfo(object):
         if 'system' in subset:
             system = self.get_system_list()
 
+        if self.is_code_level_supported(system, [8, 5, 2, 0]):
+            if 'volumegroup' in subset:
+                volumegroup = self.get_volumegroup_list()
+            if 'snapshot' in subset:
+                snapshot = self.get_snapshot_list()
+
         self.module.exit_json(
             Volume=vol,
             Pool=pool,
@@ -562,7 +642,9 @@ class IBMSVCGatherInfo(object):
             FCMap=fcmap,
             RemoteCopy=rcrelationship,
             Array=array,
-            System=system)
+            System=system,
+            VolumeGroup=volumegroup,
+            Snapshot=snapshot)
 
 
 def main():
