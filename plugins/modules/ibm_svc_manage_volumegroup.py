@@ -183,6 +183,12 @@ options:
             - Supported from Spectrum Virtualize family storage systems 8.5.2.1 or later.
         type: bool
         version_added: 1.10.0
+    old_name:
+        description:
+            - Specifies the old name for the volume group while renaming.
+            - Valid when I(state=present) to rename an existing volume group.
+        type: str
+        version_added: 1.12.0
 author:
     - Shilpi Jain(@Shilpi-J)
     - Sanjaikumaar M (@sanjaikumaar)
@@ -268,6 +274,16 @@ EXAMPLES = '''
     fromsourcegroup: vg0
     pool: Pool0
     state: present
+- name: Rename an existing volume group
+  ibm.spectrum_virtualize.ibm_svc_manage_volumegroup:
+    clustername: "{{ clustername }}"
+    domain: "{{ domain }}"
+    username: "{{ username }}"
+    password: "{{ password }}"
+    log_path: /tmp/playbook.debug
+    old_name: vg0
+    name: new_vg0_name
+    state: present
 '''
 
 RETURN = '''#'''
@@ -304,7 +320,8 @@ class IBMSVCVG(object):
                 safeguarded=dict(type='bool', default=False),
                 ignoreuserfcmaps=dict(type='str', choices=['yes', 'no']),
                 replicationpolicy=dict(type='str'),
-                noreplicationpolicy=dict(type='bool')
+                noreplicationpolicy=dict(type='bool'),
+                old_name=dict(type='str')
             )
         )
 
@@ -338,6 +355,7 @@ class IBMSVCVG(object):
         self.ignoreuserfcmaps = self.module.params.get('ignoreuserfcmaps', '')
         self.replicationpolicy = self.module.params.get('replicationpolicy', '')
         self.noreplicationpolicy = self.module.params.get('noreplicationpolicy', False)
+        self.old_name = self.module.params.get('old_name', '')
 
         # Dynamic variable
         self.parentuid = None
@@ -377,7 +395,7 @@ class IBMSVCVG(object):
                         'nosafeguardpolicy', 'snapshotpolicy', 'nosnapshotpolicy',
                         'policystarttime', 'type', 'fromsourcegroup', 'pool', 'iogrp',
                         'safeguarded', 'ignoreuserfcmaps', 'replicationpolicy',
-                        'noreplicationpolicy')
+                        'noreplicationpolicy', 'old_name')
 
             param_exists = ', '.join((param for param in unwanted if getattr(self, param)))
 
@@ -449,11 +467,28 @@ class IBMSVCVG(object):
                 msg='Following paramters not supported during update: {0}'.format(unsupported_exists)
             )
 
-    def get_existing_vg(self):
+    def rename_validation(self, props):
+        if self.old_name and self.name:
+
+            if self.name == self.old_name:
+                self.module.fail_json(msg='New name and old name should be different.')
+
+            new = self.get_existing_vg()
+
+            if new:
+                self.module.fail_json(
+                    msg='VolumeGroup ({0}) already exists for the given new name.'.format(
+                        self.name)
+                )
+            else:
+                props['name'] = self.name
+
+    def get_existing_vg(self, old_name=None):
+        old_name = old_name if old_name else self.name
         merged_result = {}
 
         data = self.restapi.svc_obj_info(cmd='lsvolumegroup', cmdopts=None,
-                                         cmdargs=['-gui', self.name])
+                                         cmdargs=['-gui', old_name])
 
         if isinstance(data, list):
             for d in data:
@@ -466,7 +501,7 @@ class IBMSVCVG(object):
             SP_data = self.restapi.svc_obj_info(
                 cmd='lsvolumegroupsnapshotpolicy',
                 cmdopts=None,
-                cmdargs=[self.name]
+                cmdargs=[old_name]
             )
             merged_result['snapshot_policy_start_time'] = SP_data['snapshot_policy_start_time']
             merged_result['snapshot_policy_suspended'] = SP_data['snapshot_policy_suspended']
@@ -511,7 +546,7 @@ class IBMSVCVG(object):
         )
 
         props = dict((k, getattr(self, k)) for k, v in params_mapping if getattr(self, k) and getattr(self, k) != v)
-
+        self.rename_validation(props)
         if self.safeguardpolicyname and self.safeguardpolicyname != data.get('safeguarded_policy_name', ''):
             props['safeguardedpolicy'] = self.safeguardpolicyname
             # If policy is changed, existing policystarttime will be erased so adding time without any check
@@ -607,8 +642,9 @@ class IBMSVCVG(object):
             return
 
         # update the volume group
-        self.log("updating volume group '%s' ", self.name)
-        cmdargs = [self.name]
+        old_name = self.old_name if self.old_name else self.name
+        self.log("updating volume group '%s' ", old_name)
+        cmdargs = [old_name]
 
         try:
             del modify['snapshotpolicysuspended']
@@ -651,7 +687,7 @@ class IBMSVCVG(object):
         self.changed = True
 
     def apply(self):
-        vg_data = self.get_existing_vg()
+        vg_data = self.get_existing_vg(old_name=self.old_name)
 
         if vg_data:
             if self.state == 'present':

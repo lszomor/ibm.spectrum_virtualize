@@ -1035,6 +1035,174 @@ class TestIBMSVCvdisk(unittest.TestCase):
             vg.apply()
         self.assertTrue(exc.value.args[0]['changed'])
 
+    @patch('ansible_collections.ibm.spectrum_virtualize.plugins.module_utils.'
+           'ibm_svc_utils.IBMSVCRestApi.svc_run_command')
+    @patch('ansible_collections.ibm.spectrum_virtualize.plugins.module_utils.'
+           'ibm_svc_utils.IBMSVCRestApi.svc_obj_info')
+    @patch('ansible_collections.ibm.spectrum_virtualize.plugins.module_utils.'
+           'ibm_svc_utils.IBMSVCRestApi._svc_authorize')
+    def test_module_for_rename_volumegroup(self, mock_svc_authorize,
+                                           svc_obj_info_mock,
+                                           svc_run_command_mock):
+        set_module_args({
+            'clustername': 'clustername',
+            'domain': 'domain',
+            'username': 'username',
+            'password': 'password',
+            'name': 'test_volumegroup_newname',
+            'old_name': 'test_volumegroup',
+            'state': 'present'
+        })
+
+        mock_volumegroup_data = [{
+            "id": "8",
+            "name": "test_volumegroup",
+            "volume_count": "0",
+            "backup_status": "empty",
+            "last_backup_time": "",
+            "owner_id": "",
+            "owner_name": "",
+            "safeguarded_policy_id": "",
+            "safeguarded_policy_name": "",
+            "safeguarded_policy_start_time": "",
+            "snapshot_policy_name": "ss_policy2",
+            "snapshot_policy_suspended": "no",
+            "ignore_user_flash_copy_maps": "no",
+            "snapshot_policy_safeguarded": "no",
+            "replication_policy_name": "rp0"
+        }]
+
+        svc_obj_info_mock.side_effect = [mock_volumegroup_data, []]
+        svc_run_command_mock.return_value = {
+            'id': 56,
+            'message': 'success message'
+        }
+        with pytest.raises(AnsibleExitJson) as exc:
+            vg = IBMSVCVG()
+            vg.apply()
+        self.assertTrue(exc.value.args[0]['changed'])
+
+    @patch('ansible_collections.ibm.spectrum_virtualize.plugins.module_utils.'
+           'ibm_svc_utils.IBMSVCRestApi.svc_obj_info')
+    @patch('ansible_collections.ibm.spectrum_virtualize.plugins.module_utils.'
+           'ibm_svc_utils.IBMSVCRestApi._svc_authorize')
+    def test_module_for_rename_faiklure_nonexisting_volumegroup(self, mock_svc_authorize,
+                                                                svc_obj_info_mock):
+        set_module_args({
+            'clustername': 'clustername',
+            'domain': 'domain',
+            'username': 'username',
+            'password': 'password',
+            'name': 'test_volumegroup_newname',
+            'old_name': 'test_nonexisting_volumegroup',
+            'state': 'present'
+        })
+        svc_obj_info_mock.return_value = []
+        with pytest.raises(AnsibleFailJson) as exc:
+            vg = IBMSVCVG()
+            vg.apply()
+        self.assertTrue(exc.value.args[0]['failed'])
+
+    @patch('ansible_collections.ibm.spectrum_virtualize.plugins.module_utils.'
+           'ibm_svc_utils.IBMSVCRestApi.svc_obj_info')
+    @patch('ansible_collections.ibm.spectrum_virtualize.plugins.module_utils.'
+           'ibm_svc_utils.IBMSVCRestApi._svc_authorize')
+    def test_module_for_rename_failure_to_existing_volumegroup(self, mock_svc_authorize,
+                                                               svc_obj_info_mock):
+        set_module_args({
+            'clustername': 'clustername',
+            'domain': 'domain',
+            'username': 'username',
+            'password': 'password',
+            'name': 'test_existing_volumegroup',
+            'old_name': 'test_volumegroup',
+            'state': 'present'
+        })
+
+        mock_test_volumegroup_data = [{
+            "id": "8",
+            "name": "test_volumegroup",
+            "volume_count": "0",
+            "backup_status": "empty",
+            "last_backup_time": "",
+            "owner_id": "",
+            "owner_name": "",
+            "safeguarded_policy_id": "",
+            "safeguarded_policy_name": "",
+            "safeguarded_policy_start_time": "",
+            "snapshot_policy_name": "ss_policy2",
+            "snapshot_policy_suspended": "no",
+            "ignore_user_flash_copy_maps": "no",
+            "snapshot_policy_safeguarded": "no",
+            "replication_policy_name": "rp0"
+        }]
+        mock_test_existing_volumegroup_data = [{
+            "id": "9",
+            "name": "test_existing_volumegroup",
+            "volume_count": "0",
+            "backup_status": "empty",
+            "last_backup_time": "",
+            "owner_id": "",
+            "owner_name": "",
+            "safeguarded_policy_id": "",
+            "safeguarded_policy_name": "",
+            "safeguarded_policy_start_time": "",
+            "snapshot_policy_name": "ss_policy2",
+            "snapshot_policy_suspended": "no",
+            "ignore_user_flash_copy_maps": "no",
+            "snapshot_policy_safeguarded": "no",
+            "replication_policy_name": "rp0"
+        }]
+
+        svc_obj_info_mock.side_effect = [mock_test_volumegroup_data,
+                                         mock_test_existing_volumegroup_data]
+
+        with pytest.raises(AnsibleFailJson) as exc:
+            vg = IBMSVCVG()
+            vg.apply()
+        self.assertTrue(exc.value.args[0]['failed'])
+
+    @patch('ansible_collections.ibm.spectrum_virtualize.plugins.module_utils.'
+           'ibm_svc_utils.IBMSVCRestApi.svc_obj_info')
+    @patch('ansible_collections.ibm.spectrum_virtualize.plugins.module_utils.'
+           'ibm_svc_utils.IBMSVCRestApi._svc_authorize')
+    def test_module_for_rename_failure_for_same_name(self, mock_svc_authorize,
+                                                     svc_obj_info_mock):
+        set_module_args({
+            'clustername': 'clustername',
+            'domain': 'domain',
+            'username': 'username',
+            'password': 'password',
+            'old_name': 'test_volumegroup',
+            'name': 'test_volumegroup',
+            'state': 'present'
+        })
+
+        mock_test_volumegroup_data = [{
+            "id": "8",
+            "name": "test_volumegroup",
+            "volume_count": "0",
+            "backup_status": "empty",
+            "last_backup_time": "",
+            "owner_id": "",
+            "owner_name": "",
+            "safeguarded_policy_id": "",
+            "safeguarded_policy_name": "",
+            "safeguarded_policy_start_time": "",
+            "snapshot_policy_name": "ss_policy2",
+            "snapshot_policy_suspended": "no",
+            "ignore_user_flash_copy_maps": "no",
+            "snapshot_policy_safeguarded": "no",
+            "replication_policy_name": "rp0"
+        }]
+
+        svc_obj_info_mock.return_value = mock_test_volumegroup_data
+
+        with pytest.raises(AnsibleFailJson) as exc:
+            vg = IBMSVCVG()
+            vg.apply()
+        self.assertTrue(exc.value.args[0]['failed'])
+
 
 if __name__ == '__main__':
     unittest.main()
