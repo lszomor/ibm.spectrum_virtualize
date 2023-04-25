@@ -141,6 +141,12 @@ options:
     description:
       - Path of debug log file.
     type: str
+  force:
+    description:
+      - Force manage volume.
+      - Ignores volume type validaton.
+    default: false
+    type: bool
 author:
     - Sreshtant Bohidar(@Sreshtant-Bohidar)
 notes:
@@ -246,6 +252,16 @@ EXAMPLES = '''
     log_path: "{{ log_path }}"
     name: "new_volume_name"
     state: "absent"
+- name: Assign a Mirrored volume to a Volume Group
+  ibm.spectrum_virtualize.ibm_svc_manage_volume:
+    clustername: "{{ clustername }}"
+    domain: "{{ domain }}"
+    username: "{{ username }}"
+    password: "{{ password }}"
+    name: "volume_name"
+    volumegroup: "test_volumegroup"
+    force: true
+    state: "present"
 '''
 
 RETURN = '''#'''
@@ -283,7 +299,8 @@ class IBMSVCvolume(object):
                 deduplicated=dict(type='bool', required=False),
                 old_name=dict(type='str', required=False),
                 enable_cloud_snapshot=dict(type='bool'),
-                cloud_account_name=dict(type='str')
+                cloud_account_name=dict(type='str'),
+                force=dict(type='bool', default=False),
             )
         )
 
@@ -312,6 +329,7 @@ class IBMSVCvolume(object):
         self.old_name = self.module.params['old_name']
         self.enable_cloud_snapshot = self.module.params['enable_cloud_snapshot']
         self.cloud_account_name = self.module.params['cloud_account_name']
+        self.force = self.module.params['force']
 
         # internal variable
         self.changed = False
@@ -399,6 +417,9 @@ class IBMSVCvolume(object):
 
     # for validating if volume type is supported or not
     def validate_volume_type(self, data):
+        if self.force:
+            return
+
         unsupported_volume = False
         if data[0]['type'] == "many":
             unsupported_volume = True
